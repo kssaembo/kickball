@@ -1,0 +1,5 @@
+{
+  "name": "Kickball Master Scoreboard",
+  "description": "A professional-grade, responsive counting scoreboard for kickball games featuring detailed tracking for balls, strikes, outs, and fouls, along with team scores and inning management.",
+  "requestFramePermissions": []
+}
