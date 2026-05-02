@@ -29,23 +29,23 @@ export const LightIndicator: React.FC<LightIndicatorProps> = ({
 
   return (
     <div 
-      className={`group flex flex-row md:flex-col items-center justify-between md:justify-center gap-3 p-4 md:p-2 rounded-[1.5rem] border-4 cursor-pointer active:scale-[0.98] transition-all duration-300 h-full w-full select-none ${
+      className={`group flex flex-row md:flex-col items-center justify-between md:justify-center gap-3 p-4 md:p-2 min-h-[70px] md:min-h-0 rounded-2xl md:rounded-[1.5rem] border-4 cursor-pointer active:scale-[0.98] transition-all duration-300 w-full md:h-full select-none ${
         isDarkMode 
           ? 'bg-slate-800 border-slate-700 hover:border-slate-600' 
           : 'bg-white border-slate-200 shadow-sm hover:shadow-md'
       }`}
       onClick={onClick}
     >
-      <span className={`text-xl md:text-3xl font-black tracking-widest transition-colors ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+      <span className={`text-base md:text-3xl font-black tracking-widest transition-colors ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
         {label}
       </span>
-      <div className="flex gap-2 sm:gap-4 md:gap-3">
+      <div className="flex flex-row md:flex-col lg:flex-row gap-2 sm:gap-4 md:gap-3 items-center">
         {Array.from({ length: max }).map((_, i) => {
           const isActive = i < count;
           return (
             <div
               key={i}
-              className={`w-10 h-10 sm:w-14 sm:h-14 md:w-8 md:h-8 lg:w-10 lg:h-10 rounded-full border-2 transition-all duration-300 ${
+              className={`w-7 h-7 sm:w-14 sm:h-14 md:w-8 md:h-8 lg:w-10 lg:h-10 rounded-full border-2 transition-all duration-300 ${
                 isActive 
                   ? `${style.active} border-transparent` 
                   : `${style.inactive} ${isDarkMode ? 'border-slate-700' : 'border-slate-200'}`

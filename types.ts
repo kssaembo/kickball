@@ -14,6 +14,15 @@ export interface GameState {
   fouls: number;
 }
 
+export interface GameEvent {
+  timestamp: number;
+  inning: number;
+  isBottom: boolean;
+  action: string;
+  details: string;
+  score: string;
+}
+
 export const INITIAL_STATE: GameState = {
   inning: 1,
   isBottom: false,

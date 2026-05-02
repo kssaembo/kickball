@@ -1,5 +1,7 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { 
   RotateCcw, 
   ArrowRight, 
@@ -8,17 +10,35 @@ import {
   ChevronDown,
   Sun,
   Moon,
-  Undo2
+  Undo2,
+  FileDown,
+  CheckCircle2
 } from 'lucide-react';
-import { GameState, INITIAL_STATE, MAX_BALLS, MAX_STRIKES, MAX_OUTS, MAX_FOULS } from './types';
+import { GameState, GameEvent, INITIAL_STATE, MAX_BALLS, MAX_STRIKES, MAX_OUTS, MAX_FOULS } from './types';
 import { LightIndicator } from './components/LightIndicator';
 import { ScoreBox } from './components/ScoreBox';
 
 export default function App() {
   const [gameState, setGameState] = useState<GameState>(INITIAL_STATE);
   const [history, setHistory] = useState<GameState[]>([]);
+  const [eventLog, setEventLog] = useState<GameEvent[]>([]);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showEndSummary, setShowEndSummary] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
+
+  const logEvent = useCallback((action: string, details: string, state: GameState) => {
+    setEventLog(prev => [
+      ...prev,
+      {
+        timestamp: Date.now(),
+        inning: state.inning,
+        isBottom: state.isBottom,
+        action,
+        details,
+        score: `${state.awayScore} : ${state.homeScore}`
+      }
+    ]);
+  }, []);
 
   const saveHistory = useCallback(() => {
     setHistory(prev => [gameState, ...prev].slice(0, 20));
@@ -29,6 +49,7 @@ export default function App() {
       const prev = history[0];
       setGameState(prev);
       setHistory(prevHistory => prevHistory.slice(1));
+      setEventLog(prevLog => prevLog.slice(0, -1));
     }
   };
 
@@ -36,15 +57,17 @@ export default function App() {
 
   const handleBall = useCallback(() => {
     saveHistory();
+    logEvent('BALL', '+1 Ball', gameState);
     setGameState(prev => {
       const nextBalls = prev.balls + 1;
       if (nextBalls >= MAX_BALLS) return { ...prev, balls: 0, strikes: 0, fouls: 0 };
       return { ...prev, balls: nextBalls };
     });
-  }, [saveHistory]);
+  }, [saveHistory, logEvent, gameState]);
 
   const handleStrike = useCallback(() => {
     saveHistory();
+    logEvent('STRIKE', '+1 Strike', gameState);
     setGameState(prev => {
       const nextStrikes = prev.strikes + 1;
       if (nextStrikes >= MAX_STRIKES) {
@@ -53,10 +76,11 @@ export default function App() {
       }
       return { ...prev, strikes: nextStrikes };
     });
-  }, [saveHistory]);
+  }, [saveHistory, logEvent, gameState]);
 
   const handleFoul = useCallback(() => {
     saveHistory();
+    logEvent('FOUL', '+1 Foul', gameState);
     setGameState(prev => {
       const nextStrikes = prev.strikes < 2 ? prev.strikes + 1 : prev.strikes;
       const nextFouls = prev.fouls + 1;
@@ -66,24 +90,27 @@ export default function App() {
         fouls: nextFouls > MAX_FOULS ? 0 : nextFouls 
       };
     });
-  }, [saveHistory]);
+  }, [saveHistory, logEvent, gameState]);
 
   const handleOut = useCallback(() => {
     saveHistory();
+    logEvent('OUT', '+1 Out', gameState);
     setGameState(prev => ({ 
       ...prev, 
       balls: 0, strikes: 0, fouls: 0, 
       outs: (prev.outs + 1) > MAX_OUTS ? 0 : prev.outs + 1 
     }));
-  }, [saveHistory]);
+  }, [saveHistory, logEvent, gameState]);
 
   const resetCount = useCallback(() => {
     saveHistory();
+    logEvent('RESET', 'Count Reset', gameState);
     setGameState(prev => ({ ...prev, balls: 0, strikes: 0, fouls: 0 }));
-  }, [saveHistory]);
+  }, [saveHistory, logEvent, gameState]);
 
   const switchSides = useCallback(() => {
     saveHistory();
+    logEvent('HALF_INNING', 'Side Switched', gameState);
     setGameState(prev => {
       const isNowBottom = !prev.isBottom;
       return {
@@ -93,17 +120,18 @@ export default function App() {
         balls: 0, strikes: 0, outs: 0, fouls: 0
       };
     });
-  }, [saveHistory]);
+  }, [saveHistory, logEvent, gameState]);
 
   const nextInning = useCallback(() => {
     saveHistory();
+    logEvent('INNING_CHANGE', 'Next Inning', gameState);
     setGameState(prev => ({
       ...prev,
       inning: prev.inning + 1,
       isBottom: false,
       balls: 0, strikes: 0, outs: 0, fouls: 0
     }));
-  }, [saveHistory]);
+  }, [saveHistory, logEvent, gameState]);
 
   const renameTeam = (side: 'HOME' | 'AWAY', name: string) => {
     setGameState(prev => ({
@@ -112,14 +140,80 @@ export default function App() {
     }));
   };
 
-  const resetGame = useCallback(() => {
-    saveHistory();
-    setGameState(INITIAL_STATE);
+  const confirmEndGame = useCallback(() => {
     setShowResetConfirm(false);
-  }, [saveHistory]);
+    setShowEndSummary(true);
+    logEvent('END_GAME', 'Game Session Ended', gameState);
+  }, [logEvent, gameState]);
+
+  const downloadPDF = useCallback(() => {
+    const doc = new jsPDF() as any;
+    
+    // Header
+    doc.setFontSize(22);
+    doc.setTextColor(30, 41, 59);
+    doc.text("KICKBALL GAME REPORT", 105, 20, { align: 'center' });
+    
+    doc.setDrawColor(203, 213, 225);
+    doc.line(20, 25, 190, 25);
+
+    // Final Outcome Section
+    doc.setFontSize(16);
+    doc.setTextColor(51, 65, 85);
+    doc.text("Game Outcome", 20, 40);
+    
+    autoTable(doc, {
+      startY: 45,
+      head: [['Team', 'Score', 'Status']],
+      body: [
+        [gameState.awayName, gameState.awayScore, !gameState.isBottom ? 'Attacking' : 'Defending'],
+        [gameState.homeName, gameState.homeScore, gameState.isBottom ? 'Attacking' : 'Defending'],
+      ],
+      theme: 'striped',
+      headStyles: { fillColor: [59, 130, 246] },
+    });
+
+    // Event Log Section
+    const finalY = (doc as any).lastAutoTable.finalY + 15;
+    doc.setFontSize(16);
+    doc.text("Detailed Event Log", 20, finalY);
+
+    const tableData = eventLog.map((event, index) => [
+      index + 1,
+      `${event.inning}${event.isBottom ? 'B' : 'T'}`,
+      event.action,
+      event.details,
+      event.score
+    ]);
+
+    autoTable(doc, {
+      startY: finalY + 5,
+      head: [['#', 'Inning', 'Action', 'Details', 'Score']],
+      body: tableData,
+      theme: 'grid',
+      headStyles: { fillColor: [71, 85, 105] },
+      columnStyles: {
+        0: { cellWidth: 10 },
+        1: { cellWidth: 20 },
+        2: { cellWidth: 40 },
+        4: { cellWidth: 30 },
+      }
+    });
+
+    // Save
+    doc.save(`kickball_report_${new Date().getTime()}.pdf`);
+  }, [gameState, eventLog]);
+
+  const startNewGame = useCallback(() => {
+    setGameState(INITIAL_STATE);
+    setHistory([]);
+    setEventLog([]);
+    setShowEndSummary(false);
+  }, []);
 
   const adjustScore = (team: 'HOME' | 'AWAY', delta: number) => {
     saveHistory();
+    logEvent('SCORE', `${delta > 0 ? '+' : ''}${delta} Points for ${team === 'HOME' ? gameState.homeName : gameState.awayName}`, gameState);
     setGameState(prev => ({
       ...prev,
       [team === 'HOME' ? 'homeScore' : 'awayScore']: Math.max(0, (team === 'HOME' ? prev.homeScore : prev.awayScore) + delta)
@@ -129,11 +223,89 @@ export default function App() {
   const isThreeOuts = gameState.outs === 3;
 
   return (
-    <div className={`h-screen w-screen flex flex-col font-sans selection:bg-blue-500 overflow-hidden p-3 md:p-6 transition-colors duration-500 ${isDarkMode ? 'bg-slate-950 text-white' : 'bg-[#F8F9FA] text-slate-900'}`}>
+    <div className={`h-screen w-screen flex flex-col font-sans selection:bg-blue-500 overflow-hidden transition-colors duration-500 ${isDarkMode ? 'bg-slate-950 text-white' : 'bg-[#F8F9FA] text-slate-900'}`}>
       
-      {/* Scoreboard Section: Adjusted mobile height to 20% (4/5 of 25%) */}
-      <header className="h-[20%] md:h-[22%] flex-none w-full max-w-6xl mx-auto mb-4">
-        <div className="grid grid-cols-3 gap-3 md:gap-6 h-full items-stretch">
+      {/* Mobile Landscape Warning */}
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950 p-6 text-center sm:hidden [orientation:landscape]:flex hidden">
+        <RotateCcw className="mb-4 h-16 w-16 animate-spin text-blue-500" />
+        <h2 className="mb-2 text-2xl font-bold text-white">모바일 세로 모드 권장</h2>
+        <p className="text-slate-400">본 서비스는 모바일 세로 화면에서만 지원됩니다.<br />화면을 세로로 돌려주세요.</p>
+      </div>
+
+      <div className="flex-1 flex flex-col p-3 md:p-6 overflow-hidden">
+        {/* Modals */}
+        {showResetConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-300">
+            <div className={`w-full max-w-sm rounded-[2rem] border-4 p-8 shadow-2xl transition-all ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'}`}>
+              <div className="flex flex-col items-center text-center space-y-6">
+                <div className="p-4 bg-rose-100 rounded-full text-rose-500">
+                  <RotateCcw size={48} />
+                </div>
+                <h2 className="text-2xl font-black">경기를 종료하시겠습니까?</h2>
+                <div className="flex w-full gap-3">
+                  <button 
+                    onClick={confirmEndGame}
+                    className="flex-1 py-4 bg-rose-500 text-white rounded-2xl font-black text-xl hover:bg-rose-600 active:scale-95 transition-all"
+                  >
+                    확인
+                  </button>
+                  <button 
+                    onClick={() => setShowResetConfirm(false)}
+                    className={`flex-1 py-4 rounded-2xl font-black text-xl active:scale-95 transition-all ${isDarkMode ? 'bg-slate-800 text-slate-400 hover:bg-slate-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                  >
+                    취소
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showEndSummary && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-300">
+            <div className={`w-full max-w-sm rounded-[2rem] border-4 p-8 shadow-2xl transition-all ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'}`}>
+              <div className="flex flex-col items-center text-center space-y-6">
+                <div className="p-4 bg-emerald-100 rounded-full text-emerald-500">
+                  <CheckCircle2 size={48} />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-black">경기를 종료하였습니다.</h2>
+                  <p className={`mt-2 text-sm ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>수고하셨습니다!</p>
+                </div>
+
+                <div className={`w-full p-4 rounded-2xl border-2 flex flex-col gap-2 ${isDarkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
+                  <div className="flex justify-between items-center font-bold">
+                    <span>{gameState.awayName}</span>
+                    <span className="text-2xl text-blue-500">{gameState.awayScore}</span>
+                  </div>
+                  <div className="flex justify-between items-center font-bold">
+                    <span>{gameState.homeName}</span>
+                    <span className="text-2xl text-blue-500">{gameState.homeScore}</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col w-full gap-3">
+                  <button 
+                    onClick={downloadPDF}
+                    className="w-full flex items-center justify-center gap-2 py-4 bg-blue-500 text-white rounded-2xl font-black text-xl hover:bg-blue-600 active:scale-95 transition-all"
+                  >
+                    <FileDown size={24} /> PDF
+                  </button>
+                  <button 
+                    onClick={startNewGame}
+                    className={`w-full py-4 rounded-2xl font-black text-xl active:scale-95 transition-all ${isDarkMode ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-md'}`}
+                  >
+                    새 게임
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Scoreboard Section */}
+        <header className="flex-none w-full max-w-6xl mx-auto mb-4">
+          <div className="grid grid-cols-3 gap-3 md:gap-6 items-stretch">
           <ScoreBox 
             teamName={gameState.awayName} 
             score={gameState.awayScore} 
@@ -165,18 +337,18 @@ export default function App() {
         </div>
       </header>
 
-      {/* Counts Section */}
-      <main className="h-[45%] md:h-[18%] flex-grow w-full max-w-6xl mx-auto flex items-center mb-3">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 md:gap-4 w-full h-full">
-          <LightIndicator label="BALL" count={gameState.balls} max={MAX_BALLS} color="green" isDarkMode={isDarkMode} onClick={handleBall} />
-          <LightIndicator label="STRIKE" count={gameState.strikes} max={MAX_STRIKES} color="yellow" isDarkMode={isDarkMode} onClick={handleStrike} />
-          <LightIndicator label="OUT" count={gameState.outs} max={MAX_OUTS} color="red" isDarkMode={isDarkMode} onClick={handleOut} />
-          <LightIndicator label="FOUL" count={gameState.fouls} max={MAX_FOULS} color="orange" isDarkMode={isDarkMode} onClick={handleFoul} />
-        </div>
-      </main>
+        {/* Counts Section */}
+        <main className="flex-1 min-h-0 w-full max-w-6xl mx-auto flex items-center mb-4 md:mb-6 overflow-y-auto">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 md:gap-4 w-full h-full">
+            <LightIndicator label="BALL" count={gameState.balls} max={MAX_BALLS} color="green" isDarkMode={isDarkMode} onClick={handleBall} />
+            <LightIndicator label="STRIKE" count={gameState.strikes} max={MAX_STRIKES} color="yellow" isDarkMode={isDarkMode} onClick={handleStrike} />
+            <LightIndicator label="OUT" count={gameState.outs} max={MAX_OUTS} color="red" isDarkMode={isDarkMode} onClick={handleOut} />
+            <LightIndicator label="FOUL" count={gameState.fouls} max={MAX_FOULS} color="orange" isDarkMode={isDarkMode} onClick={handleFoul} />
+          </div>
+        </main>
 
-      {/* Controls Section */}
-      <footer className="h-auto md:h-[20%] flex-none w-full max-w-6xl mx-auto">
+        {/* Controls Section */}
+        <footer className="flex-none w-full max-w-6xl mx-auto">
         {/* Desktop Layout */}
         <div className="hidden md:grid grid-cols-3 gap-6 h-full items-stretch">
           <button 
@@ -202,7 +374,7 @@ export default function App() {
           <div className="flex flex-col gap-3 h-full">
             <div className="flex gap-3 flex-1">
               <button onClick={resetCount} className={`flex-[2] flex items-center justify-center gap-2 rounded-2xl border-4 ${isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-400' : 'bg-white border-slate-200 text-slate-500 shadow-sm'}`}>
-                <RotateCcw size={18} /><span className="font-bold text-lg">타자 리셋</span>
+                <RotateCcw size={18} /><span className="font-bold text-lg md:hidden lg:inline">타자 리셋</span>
               </button>
               <button onClick={undo} disabled={history.length === 0} className={`flex-1 flex items-center justify-center rounded-2xl border-4 ${history.length === 0 ? 'opacity-30' : ''} ${isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-400' : 'bg-white border-slate-200 text-slate-500 shadow-sm'}`}>
                 <Undo2 size={22} />
@@ -212,16 +384,12 @@ export default function App() {
               </button>
             </div>
             <div className="flex-1 relative">
-              {!showResetConfirm ? (
-                <button onClick={() => setShowResetConfirm(true)} className="w-full h-full flex items-center justify-center gap-2 bg-white border-slate-200 text-slate-400 rounded-2xl border-4 hover:bg-rose-50 hover:text-rose-500">
-                  <RotateCcw size={18} /><span className="font-bold text-lg">전체 리셋</span>
-                </button>
-              ) : (
-                <div className="flex gap-2 h-full">
-                  <button onClick={resetGame} className="flex-1 bg-rose-500 border-rose-700 text-white rounded-2xl font-black border-4">확인</button>
-                  <button onClick={() => setShowResetConfirm(false)} className="flex-1 bg-slate-100 border-slate-300 text-slate-600 rounded-2xl font-black border-4">취소</button>
-                </div>
-              )}
+              <button 
+                onClick={() => setShowResetConfirm(true)} 
+                className="w-full h-full flex items-center justify-center gap-2 bg-white border-slate-200 text-slate-400 rounded-2xl border-4 hover:bg-rose-50 hover:text-rose-500"
+              >
+                <RotateCcw size={18} /><span className="font-bold text-lg">전체 리셋</span>
+              </button>
             </div>
           </div>
         </div>
@@ -272,20 +440,13 @@ export default function App() {
             </button>
 
             <div className="relative h-full">
-              {!showResetConfirm ? (
-                <button 
-                  onClick={() => setShowResetConfirm(true)}
-                  className="w-full h-full flex flex-col items-center justify-center bg-white border-slate-200 text-slate-400 rounded-xl border-2"
-                >
-                  <RotateCcw size={16} />
-                  <span className="font-bold text-[10px] mt-1">전체</span>
-                </button>
-              ) : (
-                <div className="flex flex-col gap-1 h-full animate-in fade-in zoom-in duration-200">
-                  <button onClick={resetGame} className="flex-1 bg-rose-500 border-rose-700 text-white rounded-lg font-black text-[9px] border">확인</button>
-                  <button onClick={() => setShowResetConfirm(false)} className="flex-1 bg-slate-100 border-slate-300 text-slate-600 rounded-lg font-black text-[9px] border">취소</button>
-                </div>
-              )}
+              <button 
+                onClick={() => setShowResetConfirm(true)}
+                className="w-full h-full flex flex-col items-center justify-center bg-white border-slate-200 text-slate-400 rounded-xl border-2"
+              >
+                <RotateCcw size={16} />
+                <span className="font-bold text-[10px] mt-1">전체</span>
+              </button>
             </div>
 
             <button 
@@ -306,6 +467,7 @@ export default function App() {
         <p className={`text-[10px] md:text-xs font-medium tracking-tight opacity-60 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
           ⓒ 2025. Kwon's class. All rights reserved.
         </p>
+      </div>
       </div>
     </div>
   );
